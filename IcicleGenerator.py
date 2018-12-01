@@ -1,7 +1,7 @@
 bl_info = {"name":"Icicle Generator",
            "author":"Eoin Brennan (Mayeoin Bread)",
-           "version":(2,2),
-           "blender":(2,7,4),
+           "version":(2,3),
+           "blender":(2,7,9),
            "location":"View3D > Add > Mesh",
            "description":"Adds a linear string of icicles of different sizes",
            "warning":"",
@@ -9,10 +9,12 @@ bl_info = {"name":"Icicle Generator",
            "tracker_url":"",
            "category":"Add Mesh" }
 
+# F8 to remove "dead" scripts
+
 import bpy
 import bmesh
-from mathutils import Vector
-from math import pi, sin, cos, tan, asin, acos, atan
+from mathutils import Vector, Matrix
+from math import pi, sin, cos, atan
 from bpy.props import FloatProperty, IntProperty, BoolProperty
 import random
 
@@ -27,28 +29,28 @@ class IcicleGenerator(bpy.types.Operator):
     ##
     
     # Maximum radius
-    maxR = FloatProperty(name="Max R",
+    maxR = FloatProperty(name="Max Radius",
         description="Maximum radius of a cone",
         default=0.15,
         min=0.01,
         max=1.0,
         unit="LENGTH")
     # Minimum radius
-    minR = FloatProperty(name="Min R",
+    minR = FloatProperty(name="Min Radius",
         description="Minimum radius of a cone",
         default=0.025,
         min=0.01,
         max=1.0,
         unit="LENGTH")
     # Maximum depth
-    maxD = FloatProperty(name="Max D",
+    maxD = FloatProperty(name="Max Depth",
         description="Maximum depth (height) of cone",
         default=2.0,
         min=0.2,
         max=2.0,
         unit="LENGTH")
     # Minimum depth
-    minD = FloatProperty(name="Min D",
+    minD = FloatProperty(name="Min Depth",
         description="Minimum depth (height) of cone",
         default=1.5,
         min=0.2,
@@ -64,7 +66,9 @@ class IcicleGenerator(bpy.types.Operator):
     its = IntProperty(name="Iterations", description="Number of iterations before giving up, prevents freezing/crashing", default=2000, min=1, max=10000)
     # Select base mesh at end
     # Re-selects the initial selection after adding icicles
-    rese = BoolProperty(name="Reselect base mesh", description="Re-select the base mesh after adding icicles", default=False)
+    rese = BoolProperty(name="Reselect base mesh", description="Re-select the base mesh after adding icicles", default=True)
+    # Range of subdivides for vertical edges, these will be scaled and shifted to create some randomness
+    subdivs = IntProperty(name="Subdivides", description="Number of subdivides", default=3, min=0, max=8)
     
     ##
     # Main function
@@ -74,11 +78,15 @@ class IcicleGenerator(bpy.types.Operator):
         radM = self.minR
         depth = self.maxD
         minD = self.minD
+
+        def pos_neg():
+            return -1 if random.random() < 0.5 else 1
         
         ##
         # Add cone function
         ##
         def add_cone(x,y,z,randrad,rd):
+            # TODO subdivide (vetically) and scale/offset loops to create more jagged icicles
             bpy.ops.mesh.primitive_cone_add(
                 vertices = self.verts,
                 radius1 = randrad,
@@ -92,8 +100,7 @@ class IcicleGenerator(bpy.types.Operator):
         # Add icicle function
         ##
         def add_icicles(rad, radM, depth, minD):
-            pos1 = Vector((0.0,0.0,0.0))
-            pos2 = Vector((0.0,0.0,0.0))
+            pos1 = pos2 = Vector((0.0,0.0,0.0))
             pos = 0
             obj = bpy.context.object
             bm = bmesh.from_edit_mesh(obj.data)
@@ -125,11 +132,12 @@ class IcicleGenerator(bpy.types.Operator):
             
             # X values not equal, working on X-Y-Z planes
             if pos1.x != pos2.x:
+                xEqual = False
                 #Get the angle of the line
                 angle = atan((pos2.x-pos1.x)/(pos2.y-pos1.y)) if pos2.y!=pos1.y else pi/2
                 # Total length of line, neglect Z-value (Z only affects height)
                 xLength = (((pos2.x-pos1.x)**2)+((pos2.y-pos1.y)**2))**0.5
-                # Slopes if lines
+                # Slopes of lines
                 ySlope = (pos2.y-pos1.y)/(pos2.x-pos1.x)
                 zSlope = (pos2.z-pos1.z)/(pos2.x-pos1.x)
                 # Fixes positioning error with some angles
@@ -141,87 +149,83 @@ class IcicleGenerator(bpy.types.Operator):
                 # Z and Y axis' intercepts
                 zInt = k - (zSlope*i)
                 yInt = j - (ySlope*i)
-                
-                # Equal values, therfore radius should be that size
-                # Otherwise randomise it
-                randrad = rad if radM==rad else (rad-radM)*random.random()
-                # Depth, as with radius above
-                rd = depth if depth==minD else (depth-minD)*random.random()
-                # Get user iterations
-                iterations = self.its
-                # Counter for iterations
-                c = 0
-                while(l < xLength) and (c < iterations):
-                    rr = randrad if radM==rad else randrad+radM
-                    dd = rd if depth==minD else rd+minD
-                    # Icicles generally taller than wider, check if true
-                    if(dd > rr):
-                        # If the new icicle won't exceed line length
-                        # Fix for overshooting lines
-                        if(l+rr+rr <= xLength):
-                            # Using sine/cosine of angle keeps icicles consistently spaced
-                            i = i + (rr)*sin(angle)
-                            j = j + (rr)*cos(angle)
-                            l = l + rr
-                            # Add a cone in new position
-                            add_cone(i, j, (i*zSlope)+(zInt-(dd)/2), rr, dd)
-                            # Add another radius to i & j to prevent overlap
-                            i = i + (rr)*sin(angle)
-                            j = j + (rr)*cos(angle)
-                            l = l + rr
-                            # New values for rad and depth
-                            randrad = rad if radM==rad else (rad-radM)*random.random()
-                            rd = depth if depth==minD else (depth-minD)*random.random()
-                        # If overshoot, try find smaller cone
-                        else:
-                            randrad = rad if radM==rad else (rad-radM)*random.random()
-                            rd = depth if depth==minD else (depth-minD)*random.random()
-                    # If wider than taller, try find taller than wider
-                    else:
-                        randrad = rad if radM==rad else (rad-radM)*random.random()
-                        rd = depth if depth==minD else (depth-minD)*random.random()
-                    # Increase iterations by 1
-                    c = c + 1
-#                    if(c >= iterations):
-#                        print("Too many iterations, please try different values")
-#                        print("Try increasing gaps between min and max values")
-            # If X values equal, then just working in Y-Z plane,
-            # Provided Y values not equal
             elif (pos1.x == pos2.x) and (pos1.y != pos2.y):
-                # Absolute length of Y line
+                xEqual = True
                 xLength = ((pos2.y-pos1.y)**2)**0.5
                 i = pos1.x
                 j = pos1.y
                 k = pos1.z
                 l = 0.0
-                # Z-slope and intercept
-                zSlope = (pos2.z-pos1.z)/(pos2.y - pos1.y)
+
+                zSlope = (pos2.z-pos1.z)/(pos2.y-pos1.y)
                 zInt = k - (zSlope*j)
+            else:
+                print("Cannot work on vertical lines")
+                return
+            
+            # Equal values, therfore radius should be that size
+            # Otherwise randomise it
+            randrad = rad if radM==rad else (rad-radM)*random.random()
+            # Depth, as with radius above
+            rd = depth if depth==minD else (depth-minD)*random.random()
+            # Get user iterations
+            iterations = self.its
+            # Counter for iterations
+            c = 0
+
+            while l < xLength and c < iterations:
+                rr = randrad if radM==rad else randrad+radM
+                dd = rd if depth==minD else rd+minD
+                #numCuts = random.randint(1,5)
+                numCuts = random.randint(0, self.subdivs)
+
+                if dd > rr:
+                    if l+rr+rr <= xLength:
+                        if xEqual:
+                            j = j + rr
+                            l = l + rr
+                        else:
+                            i = i + rr*sin(angle)
+                            j = j + rr*cos(angle)
+                            l = l + rr
+                        add_cone(i, j, (i*zSlope)+(zInt-dd/2), rr, dd)
+                        if numCuts > 0:
+                            bm.edges.ensure_lookup_table()
+                            coneEdges = [e for e in bm.edges if e.select == True]
+                            verticalEdges = [e for e in coneEdges if e.verts[0].co.z != e.verts[1].co.z]
+                            ret = bmesh.ops.subdivide_edges(bm, edges=verticalEdges, cuts=numCuts)
+                            #bm.edges.ensure_lookup_table()
+                            #bm.verts.ensure_lookup_table()
+                            #new_edges = [e for e in ret['geom_split'] if type(e) is bmesh.types.BMEdge]
+                            new_verts = [v for v in ret['geom_split'] if type(v) is bmesh.types.BMVert]
+                            for t in range(numCuts):
+                                v_z = new_verts[0].co.z
+                                loop_verts = [v for v in new_verts if v.co.z == v_z]
+                                bpy.ops.mesh.select_all(action='DESELECT')
+                                for v in loop_verts:
+                                    new_verts.pop(new_verts.index(v))
+                                    v.select = True
+                                obj.data.update()
+                                rr2 = 1.0 + rr * random.random() * pos_neg()
+                                bpy.ops.transform.resize(value=(rr2, rr2, 1.0))
+                                bpy.ops.transform.translate(value=(rr / 2 * random.random() * pos_neg(), rr / 2 * random.random() * pos_neg(), rr / 2 * random.random() * pos_neg()))
+                            obj.data.update()
+
+                        if xEqual:
+                            j = j + rr
+                            l = l + rr
+                        else:
+                            i = i + rr*sin(angle)
+                            j = j + rr*cos(angle)
+                            l = l + rr
                 
-                # Same as above for X-Y-Z plane, just X values don't change
                 randrad = rad if radM==rad else (rad-radM)*random.random()
                 rd = depth if depth==minD else (depth-minD)*random.random()
-                iterations = self.its
-                c = 0
-                while(l < xLength) and (c < iterations):
-                    rr = randrad if radM==rad else randrad+radM
-                    dd = rd if depth==minD else rd+minD
-                    if(dd > rr):
-                        if(l+rr+rr <= xLength):
-                            j = j + (rr)
-                            l = l + (rr)
-                            add_cone(i, j, (i*zSlope)+(zInt-(dd)/2), rr, dd)
-                            j = j + (rr)
-                            l = l + (rr)
-                            randrad = rad if radM==rad else (rad-radM)*random.random()
-                            rd = depth if depth==minD else (depth-minD)*random.random()
-                        else:
-                            randrad = rad if radM==rad else (rad-radM)*random.random()
-                            rd = depth if depth==minD else (depth-minD)*random.random()
-                    else:
-                        randrad = rad if radM==rad else (rad-radM)*random.random()
-                        rd = depth if depth==minD else (depth-minD)*random.random()
-                    c = c + 1
+                
+                c = c + 1
+                if c >= iterations:
+                    print("Too many iterations, please try different values")
+                    print("Try increasing gaps between min and max values")
             # Otherwise X and Y values the same, so either verts are on top of each other
             # Or its a vertical line. Either way, we don't like it
             else:
@@ -233,30 +237,34 @@ class IcicleGenerator(bpy.types.Operator):
             # Check that min values are less than max values
             if(rad >= radM) and (depth >= minD):
                 obj = bpy.context.object
-                if obj.mode == 'EDIT':
-                    # List of initial edges
-                    oEdge = []
-                    bm = bmesh.from_edit_mesh(obj.data)
-                    for e in bm.edges:
-                        if e.select:
-                            # Append selected edges to list
-                            oEdge.append(e.index)
-                    # For every initially selected edge, add cones
+                # have this so that it works on every edge in the object (instead of old selection)
+                ogMode = obj.mode
+                if obj.mode != 'EDIT':
+                    bpy.ops.object.mode_set(mode='EDIT')
+                
+                bm = bmesh.from_edit_mesh(obj.data)
+                oEdge = [e for e in bm.edges]
+                
+                for e in oEdge:
+                    bpy.ops.mesh.select_all(action='DESELECT')
+                    bm.edges.ensure_lookup_table()
+                    e.select = True
+                    add_icicles(rad, radM, depth, minD)
+                
+                if self.rese:
+                    bpy.ops.mesh.select_all(action='DESELECT')
+                    bm.edges.ensure_lookup_table()
                     for e in oEdge:
-                        bpy.ops.mesh.select_all(action = 'DESELECT')
-                        bm.edges.ensure_lookup_table()
-                        bm.edges[e].select = True
-                        add_icicles(rad, radM, depth, minD)
-                    if self.rese:
-                        bpy.ops.mesh.select_all(action = 'DESELECT')
-                        bm.edges.ensure_lookup_table()
-                        for e in oEdge:
-                            bm.edges[e].select = True
-                else:
-                    print("Object not in edit mode")
+                        e.select = True
+                
+                if ogMode != 'EDIT':
+                    bpy.ops.object.mode_set(mode=ogMode)
+
         # Run the function
         obj = bpy.context.object
-        if obj.type == 'MESH':
+        if obj == None:
+            print("No object selected")
+        elif obj.type == 'MESH':
             runIt(rad, radM, depth, minD)
         else:
             print("Only works on meshes")
