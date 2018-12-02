@@ -58,17 +58,17 @@ class IcicleGenerator(bpy.types.Operator):
         unit="LENGTH")
     # Number of verts at base of cone
     verts = IntProperty(name="Vertices", description="Number of vertices", default=8, min=3, max=24)
+    # Select base mesh at end
+    # Range of subdivides for vertical edges, these will be scaled and shifted to create some randomness
+    subdivs = IntProperty(name="Subdivides", description="Number of subdivides", default=3, min=0, max=8)
     # Number of iterations before giving up trying to add cones
     # Prevents crashes and freezes
     # Obviously, the more iterations, the more time spent calculating.
     # Max value (10,000) is safe but can be slow,
     # 2000 to 5000 should be adequate for 95% of cases
     its = IntProperty(name="Iterations", description="Number of iterations before giving up, prevents freezing/crashing", default=2000, min=1, max=10000)
-    # Select base mesh at end
     # Re-selects the initial selection after adding icicles
     rese = BoolProperty(name="Reselect base mesh", description="Re-select the base mesh after adding icicles", default=True)
-    # Range of subdivides for vertical edges, these will be scaled and shifted to create some randomness
-    subdivs = IntProperty(name="Subdivides", description="Number of subdivides", default=3, min=0, max=8)
     
     ##
     # Main function
@@ -96,6 +96,15 @@ class IcicleGenerator(bpy.types.Operator):
                 view_align = False,
                 location = (x,y,z),
                 rotation = (pi, 0.0, 0.0))
+        ##
+        # Get average of selected verts
+        ##
+        def get_average(sel_verts):
+            med = Vector()
+            for v in sel_verts:
+                med = med + v.co
+            return med / len(sel_verts)
+        
         ##
         # Add icicle function
         ##
@@ -127,8 +136,8 @@ class IcicleGenerator(bpy.types.Operator):
                 pos1 = p1
                 pos2 = p2
             # World matrix for positioning
-            pos1 = pos1*wm
-            pos2 = pos2*wm
+            pos1 = wm * pos1
+            pos2 = wm * pos2
             
             # X values not equal, working on X-Y-Z planes
             if pos1.x != pos2.x:
@@ -206,9 +215,15 @@ class IcicleGenerator(bpy.types.Operator):
                                     new_verts.pop(new_verts.index(v))
                                     v.select = True
                                 obj.data.update()
-                                rr2 = 1.0 + rr * random.random() * pos_neg()
-                                bpy.ops.transform.resize(value=(rr2, rr2, 1.0))
-                                bpy.ops.transform.translate(value=(rr / 2 * random.random() * pos_neg(), rr / 2 * random.random() * pos_neg(), rr / 2 * random.random() * pos_neg()))
+                                # Set up for random scale
+                                rr2 = random.uniform(0.0, 0.7)
+                                print("RR2: " + str(rr2))
+                                med = get_average(loop_verts)
+                                print("Med: " + str(med))
+                                # Lerp each vert
+                                for v in loop_verts:
+                                    v.co = v.co.lerp(med, rr2)
+                                bpy.ops.transform.translate(value=(rr * random.random() * pos_neg(), rr * random.random() * pos_neg(), rr * random.random() * pos_neg()))
                             obj.data.update()
 
                         if xEqual:
