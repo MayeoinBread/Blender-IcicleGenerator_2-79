@@ -29,46 +29,68 @@ class IcicleGenerator(bpy.types.Operator):
     ##
     
     # Maximum radius
-    maxR = FloatProperty(name="Max Radius",
+    maxR = FloatProperty(
+        name="Max Radius",
         description="Maximum radius of a cone",
         default=0.15,
         min=0.01,
         max=1.0,
         unit="LENGTH")
     # Minimum radius
-    minR = FloatProperty(name="Min Radius",
+    minR = FloatProperty(
+        name="Min Radius",
         description="Minimum radius of a cone",
         default=0.025,
         min=0.01,
         max=1.0,
         unit="LENGTH")
     # Maximum depth
-    maxD = FloatProperty(name="Max Depth",
+    maxD = FloatProperty(
+        name="Max Depth",
         description="Maximum depth (height) of cone",
         default=2.0,
         min=0.2,
         max=2.0,
         unit="LENGTH")
     # Minimum depth
-    minD = FloatProperty(name="Min Depth",
+    minD = FloatProperty(
+        name="Min Depth",
         description="Minimum depth (height) of cone",
         default=1.5,
         min=0.2,
         max=2.0,
         unit="LENGTH")
     # Number of verts at base of cone
-    verts = IntProperty(name="Vertices", description="Number of vertices", default=8, min=3, max=24)
+    verts = IntProperty(
+        name="Vertices",
+        description="Number of vertices",
+        default=8,
+        min=3,
+        max=24)
     # Select base mesh at end
     # Range of subdivides for vertical edges, these will be scaled and shifted to create some randomness
-    subdivs = IntProperty(name="Subdivides", description="Number of subdivides", default=3, min=0, max=8)
+    subdivs = IntProperty(
+        name="Subdivides",
+        description="Number of subdivides",
+        default=3,
+        min=0,
+        max=8)
     # Number of iterations before giving up trying to add cones
-    # Prevents crashes and freezes
+    # Prevents crashes and (long-term) freezes
     # Obviously, the more iterations, the more time spent calculating.
     # Max value (10,000) is safe but can be slow,
     # 2000 to 5000 should be adequate for 95% of cases
-    its = IntProperty(name="Iterations", description="Number of iterations before giving up, prevents freezing/crashing", default=2000, min=1, max=10000)
+    its = IntProperty(
+        name="Iterations",
+        description="Number of iterations before giving up, prevents freezing/crashing",
+        default=2000,
+        min=1,
+        max=10000)
     # Re-selects the initial selection after adding icicles
-    rese = BoolProperty(name="Reselect base mesh", description="Re-select the base mesh after adding icicles", default=True)
+    rese = BoolProperty(
+        name="Reselect base mesh",
+        description="Re-select the base mesh after adding icicles",
+        default=True)
     
     ##
     # Main function
@@ -85,8 +107,7 @@ class IcicleGenerator(bpy.types.Operator):
         ##
         # Add cone function
         ##
-        def add_cone(x,y,z,randrad,rd):
-            # TODO subdivide (vetically) and scale/offset loops to create more jagged icicles
+        def add_cone(v_co,randrad,rd):
             bpy.ops.mesh.primitive_cone_add(
                 vertices = self.verts,
                 radius1 = randrad,
@@ -94,83 +115,38 @@ class IcicleGenerator(bpy.types.Operator):
                 depth = rd,
                 end_fill_type = 'NGON',
                 view_align = False,
-                location = (x,y,z),
+                # Adjust the Z-height to account for the depth of the cone
+                # As pivot point is in the centre of the mesh
+                location = (v_co.x, v_co.y, v_co.z - rd/2),
                 rotation = (pi, 0.0, 0.0))
-        ##
-        # Get average of selected verts
-        ##
-        def get_average(sel_verts):
-            med = Vector()
-            for v in sel_verts:
-                med = med + v.co
-            return med / len(sel_verts)
         
         ##
         # Add icicle function
         ##
         def add_icicles(rad, radM, depth, minD):
-            pos1 = pos2 = Vector((0.0,0.0,0.0))
-            pos = 0
             obj = bpy.context.object
             bm = bmesh.from_edit_mesh(obj.data)
             wm = obj.matrix_world
-            # Vectors for selected verts
-            for v in bm.verts:
-                if v.select:
-                    if pos == 0:
-                        p1 = v.co
-                        pos = 1
-                    elif pos == 1:
-                        p2 = v.co
-                        pos = 2
-                    else:
-                        p5 = v.co
-            # Set first to left most vert on X-axis...
-            if(p1.x > p2.x):
-                pos1 = p2
-                pos2 = p1
-            # Or bottom-most on Y-axis if X-axis not used
-            elif(p1.x == p2.x):
-                [pos1, pos2] = [p2,p1] if p1.y>p2.y else [p1,p2]
-            else:
-                pos1 = p1
-                pos2 = p2
-            # World matrix for positioning
-            pos1 = wm * pos1
-            pos2 = wm * pos2
             
-            # X values not equal, working on X-Y-Z planes
-            if pos1.x != pos2.x:
-                xEqual = False
-                #Get the angle of the line
-                angle = atan((pos2.x-pos1.x)/(pos2.y-pos1.y)) if pos2.y!=pos1.y else pi/2
-                # Total length of line, neglect Z-value (Z only affects height)
-                xLength = (((pos2.x-pos1.x)**2)+((pos2.y-pos1.y)**2))**0.5
-                # Slopes of lines
-                ySlope = (pos2.y-pos1.y)/(pos2.x-pos1.x)
-                zSlope = (pos2.z-pos1.z)/(pos2.x-pos1.x)
-                # Fixes positioning error with some angles
-                i = pos2.x if angle<0 else pos1.x
-                j = pos2.y if angle<0 else pos1.y
-                k = pos2.z if angle<0 else pos1.z
-                l = 0.0
-                
-                # Z and Y axis' intercepts
-                zInt = k - (zSlope*i)
-                yInt = j - (ySlope*i)
-            elif (pos1.x == pos2.x) and (pos1.y != pos2.y):
-                xEqual = True
-                xLength = ((pos2.y-pos1.y)**2)**0.5
-                i = pos1.x
-                j = pos1.y
-                k = pos1.z
-                l = 0.0
-
-                zSlope = (pos2.z-pos1.z)/(pos2.y-pos1.y)
-                zInt = k - (zSlope*j)
-            else:
-                print("Cannot work on vertical lines")
+            # Get the verts by checking the selected edge
+            edge_verts = [v for v in bm.verts if v.select]
+            # Make sure we only have 2 verts to use
+            if len(edge_verts) != 2:
+                print('Incorrect number of verts selected. Expected 2, found ' + str(len(edge_verts)))
                 return
+            
+            # vertex coordinates
+            v1 = edge_verts[0].co
+            v2 = edge_verts[1].co
+            # World matrix for positioning
+            pos1 = wm * v1
+            pos2 = wm * v2
+            vm = pos1 - pos2
+            
+            # current length
+            l = 0.0
+            # Total length of current edge
+            t_length = ((pos1.x - pos2.x)**2 + (pos1.y - pos2.y)**2 + (pos1.z - pos2.z)**2)**0.5
             
             # Equal values, therfore radius should be that size
             # Otherwise randomise it
@@ -181,70 +157,60 @@ class IcicleGenerator(bpy.types.Operator):
             iterations = self.its
             # Counter for iterations
             c = 0
+            
+            # Check if we're working on vertical lines here,
+            # As we don't deal with them
+            if pos1.x == pos2.x and pos1.y == pos2.y:
+                print("Cannot work on vertical lines")
+                return
 
-            while l < xLength and c < iterations:
+            while l < t_length and c < iterations:
                 rr = randrad if radM==rad else randrad+radM
                 dd = rd if depth==minD else rd+minD
-                #numCuts = random.randint(1,5)
                 numCuts = random.randint(0, self.subdivs)
-
+                
+                # Check depth is bigger then radius
+                # Icicles generally longer than wider
                 if dd > rr:
-                    if l+rr+rr <= xLength:
-                        if xEqual:
-                            j = j + rr
-                            l = l + rr
-                        else:
-                            i = i + rr*sin(angle)
-                            j = j + rr*cos(angle)
-                            l = l + rr
-                        add_cone(i, j, (i*zSlope)+(zInt-dd/2), rr, dd)
-                        if numCuts > 0:
+                    # Check that we won't overshoot the length of the line
+                    # By using a cone of this radius
+                    if l+rr+rr <= t_length:
+                        l += rr
+                        t_co = pos2 + (l/t_length) * vm
+                        add_cone(t_co, rr, dd)
+                        # Add on the other half of the radius
+                        l += rr
+                        # Set up a random variable to offset the subdivisions on the icicle if added
+                        t_rand = rr * random.random() * pos_neg()
+                        # Check that we're going to subdivide, and that we're going to shift them a noticable amount
+                        if numCuts > 0 and abs(t_rand) > 0.02:
                             bm.edges.ensure_lookup_table()
                             coneEdges = [e for e in bm.edges if e.select == True]
+                            # Get the vertical edges only so we can subdivide
                             verticalEdges = [e for e in coneEdges if e.verts[0].co.z != e.verts[1].co.z]
                             ret = bmesh.ops.subdivide_edges(bm, edges=verticalEdges, cuts=numCuts)
-                            #bm.edges.ensure_lookup_table()
-                            #bm.verts.ensure_lookup_table()
-                            #new_edges = [e for e in ret['geom_split'] if type(e) is bmesh.types.BMEdge]
+                            # Get the newly-generated verts so we can shift them
                             new_verts = [v for v in ret['geom_split'] if type(v) is bmesh.types.BMVert]
                             for t in range(numCuts):
                                 v_z = new_verts[0].co.z
-                                loop_verts = [v for v in new_verts if v.co.z == v_z]
+                                # add buffer of +/- 0.02 in case vert height isn't exactly exact
+                                loop_verts = [v for v in new_verts if -0.02 < v.co.z - v_z < 0.02]
                                 bpy.ops.mesh.select_all(action='DESELECT')
                                 for v in loop_verts:
                                     new_verts.pop(new_verts.index(v))
                                     v.select = True
-                                obj.data.update()
-                                # Set up for random scale
-                                rr2 = random.uniform(0.0, 0.7)
-                                print("RR2: " + str(rr2))
-                                med = get_average(loop_verts)
-                                print("Med: " + str(med))
-                                # Lerp each vert
-                                for v in loop_verts:
-                                    v.co = v.co.lerp(med, rr2)
-                                bpy.ops.transform.translate(value=(rr * random.random() * pos_neg(), rr * random.random() * pos_neg(), rr * random.random() * pos_neg()))
+                                bpy.ops.transform.translate(value=(t_rand, t_rand, t_rand))
+                                # Generate new t_rand value, and (try) make it less effective as we go down the icicle
+                                t_rand = t_rand * random.random() * pos_neg() * (1-t)/numCuts
                             obj.data.update()
-
-                        if xEqual:
-                            j = j + rr
-                            l = l + rr
-                        else:
-                            i = i + rr*sin(angle)
-                            j = j + rr*cos(angle)
-                            l = l + rr
                 
                 randrad = rad if radM==rad else (rad-radM)*random.random()
                 rd = depth if depth==minD else (depth-minD)*random.random()
                 
-                c = c + 1
+                c += 1
                 if c >= iterations:
-                    print("Too many iterations, please try different values")
-                    print("Try increasing gaps between min and max values")
-            # Otherwise X and Y values the same, so either verts are on top of each other
-            # Or its a vertical line. Either way, we don't like it
-            else:
-                print("Cannot work on vertical lines")
+                    print("Maximum iterations reached on edge")
+
         ##
         # Run function
         ##        
